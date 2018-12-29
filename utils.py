@@ -50,9 +50,10 @@ class ImageData:
         return img
 
 
-def load_image_np(image_path, size_h=256, size_w=256):
+def load_image_np(image_path, resize=True, size_h=256, size_w=256):
     img = misc.imread(image_path, mode='RGB')
-    img = misc.imresize(img, [size_h, size_w])
+    if resize:
+        img = misc.imresize(img, [size_h, size_w])
     img = np.expand_dims(img, axis=0)
     img = preprocessing(img)
 
@@ -74,24 +75,6 @@ def load_image(filename, resize_size=None, random_hue=-1):
     img = tf.cast(img, tf.float32) / 127.5 - 1
     return img
 
-
-# def load_image_np(path, height=None, width=None):
-#     # load image
-#     img = skimage.io.imread(path)
-#     img = img / 255.0
-#     if height is not None and width is not None:
-#         ny = height
-#         nx = width
-#     elif height is not None:
-#         ny = height
-#         nx = img.shape[1] * ny / img.shape[0]
-#     elif width is not None:
-#         nx = width
-#         ny = img.shape[0] * nx / img.shape[1]
-#     else:
-#         ny = img.shape[0]
-#         nx = img.shape[1]
-#     return skimage.transform.resize(img, (ny, nx))
 
 def save_one_img(image, path):
     return misc.imsave(path, image)

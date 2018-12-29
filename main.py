@@ -23,9 +23,10 @@ def parse_args():
     parser.add_argument('--print_step', type=int, default=1, help='The number of steps that gonna print in one time.')
 
     parser.add_argument('--lr', type=float, default=0.0002, help='The learning rate')
-    parser.add_argument('--style_w', type=float, default=100, help='weight of adversarial loss')
-    parser.add_argument('--content_w', type=float, default=7.5, help='weight of adversarial loss')
-    parser.add_argument('--tv_w', type=float, default=200, help='weight of adversarial loss')
+    parser.add_argument('--style_w', type=float, default=10, help='weight of adversarial loss')
+    parser.add_argument('--content_w', type=float, default=1, help='weight of adversarial loss')
+    parser.add_argument('--tv_w', type=float, default=1e-6, help='weight of adversarial loss')
+    # 100 / 7.5 / 200
 
     parser.add_argument('--style_net', type=int, default=5, help='The type of style layers set to use, 4 or 5')
     parser.add_argument('--content_net', type=int, default=4, help='The type of content layer to use, 4 or 5')
@@ -80,42 +81,51 @@ def main():
     if args is None:
       exit()
 
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    tf_config = tf.ConfigProto(allow_soft_placement=True)
+    tf_config.gpu_options.per_process_gpu_memory_fraction = 0.3
+
     if args.phase == 'train':
         if os.path.isdir(args.style_path):
             filenames = os.listdir(args.style_path)
             for filename in filenames:
                 if os.path.splitext(filename)[1] in ('.png', '.jpg'):
-                    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+                    with tf.Session(config=tf_config) as sess:
                         model = FastStyle(sess, args, os.path.join(args.style_path, filename))
                         model.build_model()
+                        show_all_variables()
                         ckpt_dir = model.train()
                         model.evaluate(ckpt_dir)
                         sess.close()
                     tf.reset_default_graph()
                     print(" [*] Training of style-{} finished!\r\n".format(filename))
         else:
-            with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+            with tf.Session(config=tf_config) as sess:
                 model = FastStyle(sess, args)
                 model.build_model()
+                show_all_variables()
                 ckpt_dir = model.train()
                 model.evaluate(ckpt_dir)
                 sess.close()
         print(" [*] Training finished!")
 
     if args.phase == 'evaluate':
-        with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+        tf_config.gpu_options.per_process_gpu_memory_fraction = 0.2
+        with tf.Session(config=tf_config) as sess:
             model = FastStyle(sess, args)
             model.build_evaluate_model()
+            show_all_variables()
             model.evaluate()
+            sess.close()
             print(" [*] Test finished!")
 
     if args.phase == 'grid_search':
         assert not os.path.isdir(args.style_path)
-        for lr in [0.003, 0.0001, 0.00005]: #[0.01, 0.003, 0.006, 0.0001]:
-            for style_w in [5e-4, 1e-4, 3e-5, 5e-5]: #[1e-4, 5e-5, 1e-5, 1e-6]:
-                for tv_w in [0]:
-                    for style_net in [5]: #[4, 5]:
-                        for content_net in [4]: #[4, 5]:
+        for lr in [1e-3, 0.0003]:                       # [0.003, 0.001, 0.0003, 0.00001]
+            for style_w in [1000, 500, 300, 1200, 2000, 1500]:      # [20, 50, 80, 200]          [1, 5, 10, 30, 100]:
+                for tv_w in [1e-4, 5e-5, 1e-5, 1e-6]:   # [1e-4, 5e-5, 1e-5, 1e-6]:
+                    for style_net in [5]:       # [4, 5]:
+                        for content_net in [4]: # [4, 5]:
                             args.lr = lr
                             args.style_w = style_w
                             args.tv_w = tv_w
@@ -126,11 +136,12 @@ def main():
                                         'tvw_' + str(tv_w) + '_' + \
                                         'stylenet_' + str(style_net) + '_' + \
                                         'contentnet_' + str(content_net)
-                            args.model_dir = os.path.join(args.train_log_root, 'FastStyle_GridSearch_1228', grid_name)
-                            with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+                            args.model_dir = os.path.join(args.train_log_root, 'FastStyle_GridSearch', grid_name)
+                            with tf.Session(config=tf_config) as sess:
                                 print('ready to train')
                                 model = FastStyle(sess, args)
                                 model.build_model()
+                                show_all_variables()
                                 ckpt_dir = model.train()
                                 model.evaluate(ckpt_dir)
                                 sess.close()
@@ -139,11 +150,11 @@ def main():
 
     if args.phase == 'grid_search1':
         assert not os.path.isdir(args.style_path)
-        for lr in [0.003, 0.0001]: #[0.01, 0.003, 0.006, 0.0001]:
-            for style_w in [5e-06, 1e-06, 5e-07, 1e-07, 1e-08]: #[1e-4, 5e-5, 1e-5, 1e-6]:
-                for tv_w in [0]:
-                    for style_net in [4]: #[4, 5]:
-                        for content_net in [5]: #[4, 5]:
+        for lr in [1e-3, 0.0003]:                       # [0.003, 0.001, 0.0003, 0.00001]
+            for style_w in [1000, 500, 300, 1200, 2000, 1500]:      # [20, 50, 80, 200]          [1, 5, 10, 30, 100]:
+                for tv_w in [1e-4, 5e-5, 1e-5, 1e-6]:   # [1e-4, 5e-5, 1e-5, 1e-6]:
+                    for style_net in [4]:        #[4, 5]:
+                        for content_net in [4]:     #[4, 5]:
                             args.lr = lr
                             args.style_w = style_w
                             args.tv_w = tv_w
@@ -154,16 +165,18 @@ def main():
                                         'tvw_' + str(tv_w) + '_' + \
                                         'stylenet_' + str(style_net) + '_' + \
                                         'contentnet_' + str(content_net)
-                            args.model_dir = os.path.join(args.train_log_root, 'FastStyle_GridSearch_1228', grid_name)
-                            with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+                            args.model_dir = os.path.join(args.train_log_root, 'FastStyle_GridSearch', grid_name)
+                            with tf.Session(config=tf_config) as sess:
                                 print('ready to train')
                                 model = FastStyle(sess, args)
                                 model.build_model()
+                                show_all_variables()
                                 ckpt_dir = model.train()
                                 model.evaluate(ckpt_dir)
                                 sess.close()
                             tf.reset_default_graph()
         print(" [*] GridSearch finished!")
+
 
 if __name__ == '__main__':
     main()

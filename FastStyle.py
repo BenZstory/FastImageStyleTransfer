@@ -1,10 +1,7 @@
 import os
-# from ops import *
 from utils import *
 import shutil
-# from .utils import utils
-# from .utils import ImageData, load_image, check_folder
-from ops import gram_matrix, transform, content_recon_loss, style_recon_loss, total_variation_loss
+from ops import *
 import tensorflow as tf
 import numpy as np
 from glob import glob
@@ -12,14 +9,29 @@ from vgg16 import Vgg16
 import time
 from datetime import datetime
 
-# CONTENT_LAYER = 'relu4_2'
-# STYLE_LAYERS = ('conv1_1', 'conv2_1', 'conv3_1', 'relu4_1', 'relu5_1')
+STYLE_LAYERS_DICT_4 = {
+    'conv1_2': 1,
+    'conv2_2': 1,
+    'conv3_3': 1,
+    'conv4_3': 1,
+}
 
-STYLE_LAYERS4    = ['conv1_2', 'conv2_2', 'conv3_3', 'conv4_3']
-STYLE_LAYERS5    = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv5_1']
+STYLE_LAYERS_DICT_5 = {
+    'conv1_1': 1,
+    'conv2_1': 1,
+    'conv3_1': 1,
+    'conv4_1': 1,
+    'conv5_1': 1,
+}
 
-CONTENT_LAYERS4  = ['conv4_2']
-CONTENT_LAYERS5  = ['conv5_2']
+CONTENT_LAYERS_DICT_4 = {
+    'conv4_2': 1
+}
+
+CONTENT_LAYERS_DICT_5 = {
+    'conv5_2': 1
+}
+
 
 class FastStyle(object):
     def __init__(self, sess, args, style_img_path=""):
@@ -50,8 +62,16 @@ class FastStyle(object):
         self.style_w = args.style_w
         self.content_w = args.content_w
         self.tv_w = args.tv_w
-        self.style_net = args.style_net
-        self.content_net = args.content_net
+        # self.style_net = args.style_net
+        # self.content_net = args.content_net
+        if args.style_net == 4:
+            self.STYLE_LAYERS = STYLE_LAYERS_DICT_4
+        else:
+            self.STYLE_LAYERS = STYLE_LAYERS_DICT_5
+        if args.content_net == 4:
+            self.CONTENT_LAYERS = CONTENT_LAYERS_DICT_4
+        else:
+            self.CONTENT_LAYERS = CONTENT_LAYERS_DICT_5
 
         self.from_checkpoint = args.from_checkpoint
 
@@ -71,40 +91,24 @@ class FastStyle(object):
         if self.iteration == 0:
             self.iteration = int(self.dataset_num / self.batch_size)
 
-
     def build_model(self):
         self.lr = tf.placeholder(tf.float32, name='learning_rate')
 
         """ style target part, style target image -> style target grams """
         print("self.style_image_path = ", self.style_image_path)
-
-        if self.style_net == 4:
-            STYLE_LAYERS = STYLE_LAYERS4
-        else:
-            STYLE_LAYERS = STYLE_LAYERS5
-
-        if self.content_net == 4:
-            CONTENT_LAYERS = CONTENT_LAYERS4
-        else:
-            CONTENT_LAYERS = CONTENT_LAYERS5
-
-        self.style_image = get_image(self.style_image_path).astype(np.float32)
-        style_batch = np.expand_dims(self.style_image, 0)
-        styles = tf.constant(style_batch, dtype=tf.float32, shape=style_batch.shape)
-
-        print("self.style_image.shape = ", self.style_image.shape)
+        self.style_image = load_image_np(self.style_image_path, resize=False)
+        styles = tf.constant(self.style_image, dtype=tf.float32, shape=self.style_image.shape)
         style_net = Vgg16(self.vgg_path)
         style_net.build(styles)
 
         self.style_target_grams = {}
-        for layer in STYLE_LAYERS:
+        for layer, w in self.STYLE_LAYERS.items():
             style = style_net.layer_dict[layer]
             self.style_target_grams[layer] = gram_matrix(style)
 
         img_loader = ImageData(load_size=self.img_size, channels=self.img_ch)
         """ content target part, content target images -> vgg16 relu3_3 feature"""
         content = tf.data.Dataset.from_tensor_slices(self.train_dataset)
-        # TODO what if the dataset is so big that tf can't shuffle it?
         content = content.shuffle(self.dataset_num, reshuffle_each_iteration=True).repeat()
         content = content.map(img_loader.image_processing).batch(self.batch_size)
         content_iterator = content.make_one_shot_iterator()
@@ -114,14 +118,15 @@ class FastStyle(object):
         content_net.build(self.content)
 
         self.content_targets_features = {}
-        for layer in CONTENT_LAYERS:
+        for layer, w in self.CONTENT_LAYERS.items():
             self.content_targets_features[layer] = content_net.layer_dict[layer]
 
 
         """ transform part, input image -> stylized image """
-        # TODO which value scale should we use, [-1, 1] or [0, 1]? now later one.
-        content_input = (self.content + 1) / 2.0
+        # TODO which value scale should we use, [-1, 1] or [0, 1]? now former one.
+        content_input = self.content  # (self.content + 1) / 2.0
         self.stylized = transform(content_input)
+        print("HIHIHIHI - ", self.stylized.get_shape().as_list())
 
         # our transform output scale is [0, 255], yet vgg16 input scale is [-1, 1], convert now
         stylized_norm = tf.cast(self.stylized, tf.float32) / 127.5 - 1
@@ -131,16 +136,16 @@ class FastStyle(object):
         """ all vgg nets are built, now calculate losses """
         """ content loss """
         self.content_loss = 0
-        for layer in CONTENT_LAYERS:
+        for layer, w in self.CONTENT_LAYERS.items():
             y_content = vgg_net.layer_dict[layer]
-            self.content_loss += content_recon_loss(self.content_targets_features[layer], y_content)
+            self.content_loss += w * content_recon_loss(self.content_targets_features[layer], y_content)
 
         """" style loss """
         self.style_loss = 0
-        for layer in STYLE_LAYERS:
+        for layer, w in self.STYLE_LAYERS.items():
             y_style = vgg_net.layer_dict[layer]
             gram = gram_matrix(y_style)
-            self.style_loss += style_recon_loss(self.style_target_grams[layer], gram)
+            self.style_loss += w * style_recon_loss(self.style_target_grams[layer], gram)
         self.style_loss = self.style_loss / self.batch_size
 
         """" total variation loss """
@@ -165,9 +170,9 @@ class FastStyle(object):
                                                     self.summ_content_loss_with_w, self.summ_style_loss_with_w,
                                                     self.summ_tv_loss_with_w, self.summ_total_loss])
 
+        """ transform net to be used when evaluate """
         self.eval_content = tf.placeholder(tf.float32, [1, self.img_h, self.img_w, self.img_ch], name='eval_image')
-        self.eval_stylized = transform(self.content, reuse=True)
-
+        self.eval_stylized = transform(self.eval_content, reuse=True)
 
     def check_and_mkdirs(self):
         # check and make folders
@@ -228,10 +233,6 @@ class FastStyle(object):
             counter = 1
             print(" [!] Load failed...")
 
-        # # load style
-        # style_image = load_image(self.style_image_path)
-        # self.sess.run(self.style_target_grams, feed_dict={self.style_image: style_image})
-
         # loop for epoch
         start_time = time.time()
         for epoch in range(start_epoch, self.epoch):
@@ -244,7 +245,7 @@ class FastStyle(object):
 
                 self.writer.add_summary(summary_str, counter)
                 counter += 1
-                print("Epoch: [%2d] [%6d/%6d] time: %4.4f total_loss: %.8f" \
+                print("Epoch: [%2d] [%6d/%6d] time: %4.4f total_loss: %.2f" \
                       % (epoch, idx, self.iteration, time.time() - start_time, total_loss))
 
                 ##  Save samples and write to html ##
@@ -261,7 +262,7 @@ class FastStyle(object):
                         img_id = step_mod * self.batch_size + j
                         save_one_img(stylized_images[j], './{}/imgs/stylized_{:02d}_{:06d}_{:02d}.jpg'.format(
                             self.sample_dir, epoch, idx + 1, img_id))
-                    self.write_to_html(os.path.join(self.sample_dir, html_name), epoch, idx + 1, img_id)
+                        self.write_to_html(os.path.join(self.sample_dir, html_name), epoch, idx + 1, img_id)
 
                 ##  Save checkpoint  ##
                 if np.mod(idx + 1, self.save_freq) == 0:
@@ -323,8 +324,7 @@ class FastStyle(object):
 
     def build_evaluate_model(self):
         self.eval_content = tf.placeholder(tf.float32, [1, self.img_h, self.img_w, self.img_ch], name='eval_image')
-        content_input = (self.eval_content + 1) / 2.0
-        self.eval_stylized = transform(content_input)
+        self.eval_stylized = transform(self.eval_content)
 
 
     def evaluate(self, checkpoint_dir = ""):
