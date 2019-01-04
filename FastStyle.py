@@ -294,7 +294,6 @@ class FastStyle(object):
         for name in names:
             image_name = '{}_{:02d}_{:06d}_{:02d}.jpg'.format(name, epoch, idx, img_id)
             body = body + str("<img src=\"" + os.path.join('imgs', image_name) + "\">")
-        body = body + str("<br>")
 
         with open(html_path, 'a') as v_html:
             v_html.write(body)

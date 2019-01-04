@@ -121,9 +121,9 @@ def main():
 
     if args.phase == 'grid_search':
         assert not os.path.isdir(args.style_path)
-        for lr in [1e-3, 0.0003]:                       # [0.003, 0.001, 0.0003, 0.00001]
-            for style_w in [1000, 500, 300, 1200, 2000, 1500]:      # [20, 50, 80, 200]          [1, 5, 10, 30, 100]:
-                for tv_w in [1e-4, 5e-5, 1e-5, 1e-6]:   # [1e-4, 5e-5, 1e-5, 1e-6]:
+        for lr in [1e-3]:                       # [0.003, 0.001, 0.0003, 0.00001]
+            for style_w in [200, 100, 150]:      # [20, 50, 80, 200]          [1, 5, 10, 30, 100]:
+                for tv_w in [1, 0.1, 5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5, 1e-6]:   # [1e-4, 5e-5, 1e-5, 1e-6]:
                     for style_net in [5]:       # [4, 5]:
                         for content_net in [4]: # [4, 5]:
                             args.lr = lr
@@ -148,34 +148,22 @@ def main():
                             tf.reset_default_graph()
         print(" [*] GridSearch finished!")
 
-    if args.phase == 'grid_search1':
-        assert not os.path.isdir(args.style_path)
-        for lr in [1e-3, 0.0003]:                       # [0.003, 0.001, 0.0003, 0.00001]
-            for style_w in [1000, 500, 300, 1200, 2000, 1500]:      # [20, 50, 80, 200]          [1, 5, 10, 30, 100]:
-                for tv_w in [1e-4, 5e-5, 1e-5, 1e-6]:   # [1e-4, 5e-5, 1e-5, 1e-6]:
-                    for style_net in [4]:        #[4, 5]:
-                        for content_net in [4]:     #[4, 5]:
-                            args.lr = lr
-                            args.style_w = style_w
-                            args.tv_w = tv_w
-                            args.style_net = style_net
-                            args.content_net = content_net
-                            grid_name = 'lr_' + str(lr) + '_' + \
-                                        'stylew_' + str(style_w) + '_' + \
-                                        'tvw_' + str(tv_w) + '_' + \
-                                        'stylenet_' + str(style_net) + '_' + \
-                                        'contentnet_' + str(content_net)
-                            args.model_dir = os.path.join(args.train_log_root, 'FastStyle_GridSearch', grid_name)
-                            with tf.Session(config=tf_config) as sess:
-                                print('ready to train')
-                                model = FastStyle(sess, args)
-                                model.build_model()
-                                show_all_variables()
-                                ckpt_dir = model.train()
-                                model.evaluate(ckpt_dir)
-                                sess.close()
-                            tf.reset_default_graph()
-        print(" [*] GridSearch finished!")
+    if args.phase == 'evaluate_grid_search':
+        tf_config.gpu_options.per_process_gpu_memory_fraction = 0.2
+        grid_dir = args.from_checkpoint
+        assert os.path.basename(grid_dir).startswith('FastStyle_GridSearch')
+        for ckpt_dir in os.listdir(grid_dir):
+            ckpt_path = os.path.join(grid_dir, ckpt_dir)
+            print('Evaluating on path : ', ckpt_path)
+            with tf.Session(config=tf_config) as sess:
+                args.from_checkpoint = os.path.join(grid_dir, ckpt_dir)
+                model = FastStyle(sess, args)
+                model.build_evaluate_model()
+                show_all_variables()
+                model.evaluate()
+                sess.close()
+                print(" [*] Evaluate finished on dir ", ckpt_dir)
+            tf.reset_default_graph()
 
 
 if __name__ == '__main__':
